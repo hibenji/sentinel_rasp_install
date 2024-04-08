@@ -2,6 +2,7 @@
 
 # function to print the banner
 function print_banner() {
+  sleep 0.1
   clear
   printf "\e[34m"
   printf "
@@ -10,7 +11,7 @@ function print_banner() {
   ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     
   ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     
   ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗
-  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝"
+  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ v0.2.5"
   printf "\e[0m"
   printf "\n\n"
 }
@@ -117,6 +118,8 @@ read -p $'Enter the port for the node (default 7777): ' -i $PORT -e PORT
 
 print_banner
 
+# print the vpn type
+printf "Selected VPN type: $vpn_type\n\n"
 
 if [[ $vpn_type == "v2ray" ]]; then
   printf "The V2Ray port will be used for your node's V2Ray connection.\nThis will also have to be port forwarded past your router.\n\n"
@@ -165,6 +168,19 @@ read -p $'Enter the folder path (default ~/.sentinel): ' -i "${HOME}/.sentinel" 
 
 print_banner
 
+
+
+# do you want to import a seed phrase?
+printf "Would you like to import a seed phrase for the node?\n\n"
+printf "If you dont know what this means, you should probably say no\n\n"
+read -p $'Do you want to import a seed phrase? (y/n) ' -r REPLY
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+  printf "Please enter the seed phrase for the node.\n\n"
+  read -p $'Enter the seed phrase: ' -e seed_phrase
+fi
+
+print_banner
+
 # show all selected options
 printf "Selected options:\n\n"
 printf "Node Name: $NODENAME\n"
@@ -173,7 +189,7 @@ printf "VPN Type: $vpn_type\n"
 printf "Type: $type\n"
 printf "Pricing: $pricing\n"
 printf "Port: $PORT\n"
-if [[ $proxy == "v2ray" ]]; then
+if [[ $vpn_type == "v2ray" ]]; then
   printf "V2Ray Port: $V2RAYPORT\n"
 else
   printf "WireGuard Port: $WIREGUARDPORT\n"
@@ -190,20 +206,30 @@ fi
 
 
 # check if arm
-if [[ $(uname -m) == "aarch64" ]]; then
-  sudo docker pull wajatmaka/sentinel-aarch64-alpine:v0.7.1 > /dev/null 2>&1
+if [[ $(uname -m) == "aarch64" || $(uname -m) == "arm64" ]]; then
+
+  # getconf LONG_BIT
+  if [[ $(getconf LONG_BIT) == "32" ]]; then
+    sudo docker pull wajatmaka/sentinel-arm7-debian:v0.7.1
+    sudo docker tag wajatmaka/sentinel-arm7-debian:v0.7.1 sentinel-dvpn-node
+  else
+
+  sudo docker pull wajatmaka/sentinel-aarch64-alpine:v0.7.1
   sudo docker tag wajatmaka/sentinel-aarch64-alpine:v0.7.1 sentinel-dvpn-node
-# elseif for arm7
+  fi
+
 elif [[ $(uname -m) == "armv7l" ]]; then
-  sudo docker pull wajatmaka/sentinel-arm7-alpine:v0.7.1 > /dev/null 2>&1
-  sudo docker tag wajatmaka/sentinel-arm7-alpine:v0.7.1 sentinel-dvpn-node
+  sudo docker pull wajatmaka/sentinel-arm7-debian:v0.7.1
+  sudo docker tag wajatmaka/sentinel-arm7-debian:v0.7.1 sentinel-dvpn-node
 else
-  sudo docker pull ghcr.io/sentinel-official/dvpn-node:latest > /dev/null 2>&1
+  sudo docker pull ghcr.io/sentinel-official/dvpn-node:latest
   sudo docker tag ghcr.io/sentinel-official/dvpn-node:latest sentinel-dvpn-node
 fi
 sudo openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -subj "/C=NA/ST=NA/L=./O=NA/OU=./CN=." -x509 -sha256 -days 365 -nodes -out "${HOME}/tls.crt" -keyout "${HOME}/tls.key"
 mkdir $FOLDER
+printf "Generating configuration files...\n"
 sudo docker run --rm --volume "${FOLDER}:/root/.sentinelnode" sentinel-dvpn-node process config init
+printf "Generating V2Ray and WireGuard configuration files...\n"
 sudo docker run --rm --volume "${FOLDER}:/root/.sentinelnode" sentinel-dvpn-node process v2ray config init
 sudo docker run --rm --volume "${FOLDER}:/root/.sentinelnode" sentinel-dvpn-node process wireguard config init
 sudo chown -R $USER:$USER $FOLDER
@@ -254,7 +280,17 @@ sudo sed -i "3c\listen_port = $V2RAYPORT" $FOLDER/v2ray.toml
 sudo chown root:root $FOLDER/wireguard.toml
 sudo chown root:root $FOLDER/v2ray.toml
 
-sudo docker run --rm --interactive --tty --volume "${FOLDER}:/root/.sentinelnode" sentinel-dvpn-node process keys add > ${FOLDER}/node_info.txt
+printf "Generating keys...\n"
+# check if the seed phrase is set
+if [[ -n $seed_phrase ]]; then
+  echo "***Important*** write this mnemonic phrase in a safe place" > ${FOLDER}/node_info.txt
+  echo $seed_phrase >> ${FOLDER}/node_info.txt
+  echo "" >> ${FOLDER}/node_info.txt
+  sudo docker run --rm --interactive --volume $FOLDER:/root/.sentinelnode  sentinel-dvpn-node process keys add --recover <<< $seed_phrase >> ${FOLDER}/node_info.txt
+
+else
+  sudo docker run --rm --interactive --tty --volume "${FOLDER}:/root/.sentinelnode" sentinel-dvpn-node process keys add > ${FOLDER}/node_info.txt
+fi
 
 ############################################################################
 
