@@ -5,21 +5,21 @@ function print_banner() {
   sleep 0.1
   clear
   printf "\e[34m"
-  printf "
+cat << "EOF"
   ███████╗███████╗███╗   ██╗████████╗██╗███╗   ██╗███████╗██╗     
   ██╔════╝██╔════╝████╗  ██║╚══██╔══╝██║████╗  ██║██╔════╝██║     
   ███████╗█████╗  ██╔██╗ ██║   ██║   ██║██╔██╗ ██║█████╗  ██║     
   ╚════██║██╔══╝  ██║╚██╗██║   ██║   ██║██║╚██╗██║██╔══╝  ██║     
   ███████║███████╗██║ ╚████║   ██║   ██║██║ ╚████║███████╗███████╗
-  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ v0.2.5"
+  ╚══════╝╚══════╝╚═╝  ╚═══╝   ╚═╝   ╚═╝╚═╝  ╚═══╝╚══════╝╚══════╝ v0.3.0
+EOF
   printf "\e[0m"
-  printf "\n\n"
+  printf "\n"
 }
 
 print_banner
 
-printf "
-Welcome to the automated Sentinel DVPN node setup script.
+printf "Welcome to the automated Sentinel DVPN node setup script.
 
 This script will:
 - Install Docker and other required dependencies if not already installed
@@ -134,6 +134,36 @@ fi
 
 print_banner
 
+# ask if ufw should be enabled
+printf "Would you like to enable UFW (Uncomplicated Firewall) on the node and allow the ports?\n\n"
+
+# list the rules that will be added
+printf "The following rules will be added:\n"
+printf "Allow incoming TCP on port $PORT\n"
+printf "Allow incoming TCP on port $VPNPORT\n"
+printf "Allow incoming TCP on port 22(ssh)\n\n"
+
+read -p $'Do you want to enable UFW? (y/n) ' -r REPLY
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+
+# check if ufw is installed
+if ! [ -x "$(command -v ufw)" ]; then
+  printf "Installing UFW...\n"
+  sudo apt-get update && \
+  sudo apt-get install -y ufw
+  printf "UFW has been installed.\n"
+else
+  printf "UFW is already installed.\n"
+fi
+  sudo ufw allow $PORT/tcp
+  sudo ufw allow $VPNPORT/tcp
+  sudo ufw allow 22/tcp
+  sudo ufw enable
+  printf "UFW has been enabled and the ports have been allowed.\n\n"
+fi
+
+print_banner
+
 # is this a residential or datacenter node?
 PS3=$'\nIs this a residential or datacenter node?'
 printf "If you are running on a raspberry pi or a home network, you are more than likely residential.\n"
@@ -198,6 +228,28 @@ printf "Sentinel files $FOLDER.\n\n"
 
 # please double check the options
 printf "Please double check the options above carefully.\n\n"
+
+# port forwarding
+printf "If you're hosting your node from home, make sure to enable port forwarding on your router to allow external access. To do this, access your router settings and navigate to WAN services, then add the following two IPv4 Port forwarding table entries:\n\n"
+
+# https://docs.sentinel.co/node-setup/methods/manual/node-config#enable-port-forwarding-for-residential-nodes
+# https://www.noip.com/support/knowledgebase/general-port-forwarding-guide
+
+printf "You can use the following information to set up port forwarding on your router:\n"
+printf "https://docs.sentinel.co/node-setup/methods/manual/node-config#enable-port-forwarding-for-residential-nodes\n"
+printf "https://www.noip.com/support/knowledgebase/general-port-forwarding-guide\n\n"
+
+local_ip=$(hostname -I | awk '{print $1}')
+
+printf "Following are the ports that need to be forwarded, automatically gathered from the setup (double check if it is correct):\n\n"
+printf "Name: TCP_PORT\t\tProtocol: TCP\tWAN Port: $PORT\tLAN Port: $PORT\tDestination IP: $local_ip\n"
+
+if [[ $vpn_type == "v2ray" ]]; then
+  printf "Name: V2RAY_PORT\tProtocol: TCP\tWAN Port: $V2RAYPORT\tLAN Port: $V2RAYPORT\tDestination IP: $local_ip\n\n"
+else
+  printf "Name: WIREGUARD_PORT\tProtocol: UDP\tWAN Port: $VPNPORT\tLAN Port: $VPNPORT\tDestination IP: $local_ip\n\n"
+fi
+
 # do you want to continue?
 read -p $'Do you want to proceed with the setup? (y/n) ' -r REPLY
 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
